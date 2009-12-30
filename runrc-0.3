@@ -1,0 +1,162 @@
+            #-----------------------------------------------------------#
+            # BashPad specific code is modified to work with zsh        #
+            # In order to run it, copy this file as .zshrc to *any* dir #
+            # other than $HOME, I prefer ~/.config, and then launch your#
+            # terminal as                                               #
+            # ZDOTDIR=~/.config <terminal command goes here>            #
+            #                                     - ppurka              #
+            # It differs from original BashPad in the following ways    #
+            # 1. There is no RUNDIALOG used. Instead we use the inherent#
+            #    capability to zsh to source .zshrc from the directory  #
+            #    specified by ZDOTDIR                                   #
+            # 2. inputrc files are not needed. bindkeys do the needful  #
+            # 3. I don't know how to use MENUCOMPLETE in zsh :(         #
+            # 4. We don't need the HISTFILE swapping                    #
+            #-----------------------------------------------------------#
+            
+            #-------------------- Bugs/Todo ----------------------------#
+            # 1. Figure out how to disable menu-completion in zsh       #
+            #    That is, we want <Tab> to only cycle through the       #
+            #    different completion options without invoking the menu.#
+            #    Update: Now we don't need to press <tab> twice         #
+            #            So, it will work fine in 1-line terminals too  #
+            # 2. ^C does not quit                                       #
+            #-----------------------------------------------------------#
+ 
+# Source the user's original .zshrc file. Comment this line and add your
+# own zsh commands if you don't want to source the original ~/.zshrc file
+. ~/.zshrc
+
+
+# BashPad v0.3
+# copyright 2009 (c) Ole Christian Tvedt <olechrt@stud.ntnu.no>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Changes in v0.3
+#  - Use Alt+Enter to invert default runwatch choice.
+#
+# Changes in v0.2:
+#  - Runwatch uses a temporary file now instead of a subshell,
+#    making its memory footprint smaller.
+
+##################### Settings start #####################
+
+# Set this to non-zero if you want to see the output of
+# applications that exit with a non-zero return code.
+# This requires that you have either x11-apps/xmessage or
+# gnome-extra/zenity installed.
+# Use Alt+Enter when launching applications to invert
+# the default.
+: ${RUNWATCH:=1}
+
+# Set this to non-zero if you want tab to cycle through
+# possible completions with tab, instead of the regular
+# listing of possible completions. This is handy if your
+# run box is only one line. This will also enable
+# horizontal scroll mode.
+: ${MENUCOMPLETE:=1}
+
+# The foreground and background colour of the prompt.
+# Run this in a console for a list of colours:
+#  echo -e "FG\tBG" && for A in $(seq 0 87); do tput bold && tput setf $A && tput setb $((87-$A)) && echo -ne "$A\t$((87-$A))" && tput sgr0 && echo; done
+# Comment them out to use the terminal defaults.
+FG=4
+#BG=0
+
+# Set the prompt character(s). The current directory will
+# be displayed before PCHAR if it is anything but the
+# users home directory.
+PCHAR=">"
+# Comment this line if you want to preserve your RPROMPT from ~/.zshrc
+unset RPROMPT
+
+###################### Settings end ######################
+
+# Don't do anything if this is not a run dialog.
+# This is not required since we will use ZDOTDIR instead. So the usual
+# zshrc will not be read
+#if [[ "${RUNDIALOG:-0}" -eq 0 ]]; then
+#  return
+#fi
+#unset RUNDIALOG
+
+# Define the runwatch function
+function runwatch {
+  OUTLOG="$(mktemp)"
+  "$@" > "$OUTLOG" 2>&1
+  CODE=$?
+
+  if which zenity &> /dev/null; then
+    CMD='zenity --text-info --title RunWatch'
+  else
+    CMD='xargs --null xmessage'
+  fi
+
+  if [[ $CODE -ne 0 ]]; then
+    {
+    echo -n "The command \"$@\" failed ($CODE)"
+
+    if [[ -s "$OUTLOG" ]]; then
+      echo -e " with the following output:\n\n"
+      cat "$OUTLOG"
+    else
+      echo -n "."
+    fi
+    } | $CMD
+  fi
+
+  rm "$OUTLOG"
+
+  exit $CODE
+}
+
+# Set up keyboard shortcuts
+bindkey     "^A"            beginning-of-line
+bindkey     "^E"            end-of-line
+bindkey     "^K"            kill-line
+bindkey -s  "^D"            "^A^Kexit\n"
+bindkey -s  "^C"            "^A^Kexit\n"    # doesn't work
+bindkey     "\t"            menu-complete   # complete immediately
+# Add behaviour of hitting RETURN.
+if [[ $RUNWATCH -eq 0 ]]; then
+    bindkey -s "^M"         "^E &! ; exit\n"
+    bindkey -s "\e^M"       "^Arunwatch ^E &! ; exit\n"
+else
+    bindkey -s "^M"         "^Arunwatch ^E &! ; exit\n"
+    bindkey -s "\e^M"       "^E &! ; exit\n"
+fi
+
+# Set up TAB completion mode.
+# Don't know yet how to turn off menu in zsh completely
+# For now, turn off verbose menus in zsh
+zstyle ':completion:*' menu select
+zstyle ':completion:*' verbose no
+
+# History related settings
+# Use this file for history storage
+export HISTFILE=$ZDOTDIR/.run_history
+# append command to history immediately after pressing enter
+setopt inc_append_history
+# Strip runwatch and trailing & from last line of history
+sed -i -e 's: \&\! ; exit$::;s:^runwatch ::' $HISTFILE
+
+# Set the prompt. Prefix directory name if not in home directory.
+unset PS1
+[[ -n "$FG" ]]      && PS1="${PS1}%{$(tput setf $FG)%}"
+[[ -n "$BG" ]]      && PS1="${PS1}%{$(tput setb $BG)%}"
+[[ "$PWD" != ~ ]]   && PS1="$PS1%~"
+PS1="${PS1}${PCHAR}%{$reset_color%} "
+
+# History file swapping is not required now.
